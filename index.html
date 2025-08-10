@@ -7,20 +7,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="start-screen">
-        <h1>Kana Blaster</h1>
-        <p>Type the rōmaji for the falling kana and press Enter to score.</p>
-        <p>Choose your game mode:</p>
-        <div class="button-container">
-            <button id="hiraganaBtn">Hiragana</button>
-            <button id="katakanaBtn">Katakana</button>
-            <button id="bothBtn">Both</button>
-        </div>
+    <h1>Kana Blaster</h1>
+    <div id="canvas-container">
+        <canvas id="gameCanvas" width="720" height="900">
+            Your browser does not support the HTML5 canvas tag.
+        </canvas>
+    </div>
+    <div id="controls">
+        <p><strong>How to Play:</strong> Type the romaji (English letters) for the falling kana to destroy them. Don't let them reach the bottom!</p>
     </div>
 
-    <canvas id="gameCanvas" style="display: none;"></canvas>
-
-    <script src="script.js"></script>
+    <script src="kana_blaster.js"></script>
 </body>
 </html>

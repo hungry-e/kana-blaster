@@ -1,61 +1,33 @@
-/* style.css */
-
+/* Load the Japanese font needed for the game */
 @font-face {
     font-family: 'NotoSansJP';
     src: url('NotoSansJP-Regular.ttf') format('truetype');
 }
 
 body {
-    background-color: #1a1a2e;
-    color: #e0e0e0;
+    background-color: #1a082d;
+    color: #f0f0f0;
+    font-family: Arial, sans-serif;
     display: flex;
     flex-direction: column;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
     margin: 0;
-    font-family: 'NotoSansJP', sans-serif;
-    height: 100vh;
+    padding: 1em 0;
 }
 
-/* New styles for the start screen */
-#start-screen {
+h1 {
+    color: #fd8083; /* Pastel Pink */
+    text-shadow: 2px 2px 5px #ee227d; /* Neon Magenta */
+}
+
+#canvas-container {
+    border: 3px solid #498099; /* Teal Blue */
+    box-shadow: 0 0 20px #30c0b7; /* Neon Cyan */
+}
+
+#controls {
+    margin-top: 1.5em;
     text-align: center;
-    padding: 2rem;
-}
-
-#start-screen h1 {
-    font-size: 3.5rem;
-    color: #e0e0e0;
-}
-
-#start-screen p {
-    font-size: 1.2rem;
-    color: #c0c0c0;
-}
-
-.button-container {
-    margin-top: 2rem;
-}
-
-button {
-    font-family: 'NotoSansJP', sans-serif;
-    font-size: 1.2rem;
-    padding: 10px 20px;
-    margin: 0 10px;
-    cursor: pointer;
-    border: 2px solid #0f3460;
-    background-color: #4d9de0;
-    color: white;
-    border-radius: 5px;
-    transition: background-color 0.3s, transform 0.3s;
-}
-
-button:hover {
-    background-color: #0f3460;
-    transform: scale(1.05);
-}
-
-canvas {
-    border: 2px solid #0f3460;
-    background-color: #000;
+    max-width: 720px;
 }
