@@ -327,13 +327,9 @@ Matches features from provided Pygame code.
       ctx.strokeStyle = colors.WHITE; ctx.lineWidth = 2;
       roundRect(ctx, W/2 -150,250,300,50,15,false,true);
 
-	  // Mode button text centered in its button
-	  ctx.font = SMALL_UI_FONT;
-	  ctx.fillStyle = modeColor;
-	  ctx.textAlign = 'center';
-	  ctx.textBaseline = 'middle';
-	  ctx.fillText(`Mode: ${modeText}`, modeButton.x + modeButton.width / 2, modeButton.y + modeButton.height / 2);
-
+      ctx.font = SMALL_UI_FONT;
+      ctx.fillStyle = modeColor;
+      ctx.fillText(`Mode: ${modeText}`, W/2, 260 + 12 + 4);
 
       // Category boxes
       let i=0;
@@ -359,12 +355,11 @@ Matches features from provided Pygame code.
         i++;
       }
 
-	  // PLAY button text centered in its button
-	  ctx.font = SMALL_UI_FONT;
-	  ctx.fillStyle = colors.BLACK;
-	  ctx.textAlign = 'center';
-	  ctx.textBaseline = 'middle';
-	  ctx.fillText('PLAY', playButton.x + playButton.width / 2, playButton.y + playButton.height / 2);
+      // PLAY button
+      ctx.fillStyle = colors.NEON_CYAN;
+      roundRect(ctx, W/2 -60, 500, 120, 50, 15, true, false);
+      ctx.font = SMALL_UI_FONT; ctx.fillStyle = colors.BLACK;
+      ctx.fillText('PLAY', W/2, 510 + 12);
 
       requestAnimationFrame(draw);
     }
