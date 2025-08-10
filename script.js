@@ -3,6 +3,11 @@
 // --- Setup ---
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const startScreen = document.getElementById('start-screen');
+const hiraganaBtn = document.getElementById('hiraganaBtn');
+const katakanaBtn = document.getElementById('katakanaBtn');
+const bothBtn = document.getElementById('bothBtn');
+
 
 const WIDTH = 720;
 const HEIGHT = 900;
@@ -15,23 +20,22 @@ const KANA_SPAWN_RATE = 1000; // in milliseconds
 
 // --- Load Assets ---
 const backgroundImage = new Image();
-backgroundImage.src = 'background.png'; // Using the uploaded .jpg file
+backgroundImage.src = 'background.jpg';
 
-// We need to wait for the font and image to load before starting
+// Wait for the font and image to load
 Promise.all([
     document.fonts.load('64px NotoSansJP'),
-    backgroundImage.onload
-]).then(startGame);
+    new Promise(resolve => backgroundImage.onload = resolve)
+]).then(() => {
+    // Assets are loaded, ready to start.
+    console.log("Assets loaded.");
+});
 
 
-// --- Game Data & Colors (similar to Python) ---
+// --- Game Data & Colors ---
 const colors = {
-    "WHITE": "#FFFFFF",
-    "GRAY": "#808080",
-    "PASTEL_PINK": "#ffc0cb",
-    "NEON_CYAN": "#00FFFF",
-    "NEON_MAGENTA": "#FF00FF",
-    "PLAYER_BLUE": "#4d9de0"
+    "WHITE": "#FFFFFF", "GRAY": "#808080", "PASTEL_PINK": "#ffc0cb",
+    "NEON_CYAN": "#00FFFF", "NEON_MAGENTA": "#FF00FF", "PLAYER_BLUE": "#4d9de0"
 };
 
 const BASIC_KANA = [
@@ -49,29 +53,29 @@ const BASIC_KANA = [
 ];
 
 // --- Game State Variables ---
-let score;
-let escapes;
-let gameOver;
-let typingBuffer;
-let escapedKana;
-let fallingKana;
-let lastSpawnTime;
-let gameMode; // 'hiragana' or 'katakana'
+let score, escapes, gameOver, typingBuffer, escapedKana, fallingKana;
+let lastSpawnTime, gameMode;
+let animationFrameId; // To control the game loop
 
-// --- Game Objects (JS Class instead of just a dict) ---
+// --- Game Objects ---
 class Kana {
     constructor() {
         const kanaData = BASIC_KANA[Math.floor(Math.random() * BASIC_KANA.length)];
         this.romaji = kanaData.romaji;
-        this.character = gameMode === 'hiragana' ? kanaData.hiragana : kanaData.katakana;
+        
+        let characterType = gameMode;
+        if (gameMode === 'both') {
+            characterType = Math.random() < 0.5 ? 'hiragana' : 'katakana';
+        }
+        
+        this.character = characterType === 'hiragana' ? kanaData.hiragana : kanaData.katakana;
         this.x = Math.random() * (WIDTH - 80) + 40;
         this.y = -50;
-        this.speed = Math.random() * 1.5 + 1; // Speed between 1 and 2.5
+        // SPEED ADJUSTMENT: Use integer speeds like the original python script
+        this.speed = Math.floor(Math.random() * 3) + 1; // Speed is now 1, 2, or 3
     }
 
-    update() {
-        this.y += this.speed;
-    }
+    update() { this.y += this.speed; }
 
     draw() {
         ctx.font = "64px NotoSansJP";
@@ -89,24 +93,25 @@ function resetGame() {
     escapedKana = [];
     fallingKana = [];
     lastSpawnTime = 0;
-    gameMode = Math.random() < 0.5 ? 'hiragana' : 'katakana';
 }
 
+// --- Event Listeners ---
+hiraganaBtn.addEventListener('click', () => startGame('hiragana'));
+katakanaBtn.addEventListener('click', () => startGame('katakana'));
+bothBtn.addEventListener('click', () => startGame('both'));
 
-// --- Event Listener for Keyboard Input (replaces pygame.event.get()) ---
 window.addEventListener('keydown', (e) => {
     if (gameOver) {
-        if (e.key === 'r' || e.key === 'R') {
-            resetGame();
+        if (e.key === 'Enter') {
+            returnToMenu();
         }
-        return; // Don't process other keys if game is over
+        return;
     }
 
     if (e.key === 'Backspace') {
         typingBuffer = typingBuffer.slice(0, -1);
     } else if (e.key === 'Enter') {
         let destroyed = false;
-        // Find the lowest kana on screen that matches the buffer
         let targetKanaIndex = -1;
         let lowestY = -1;
 
@@ -120,35 +125,50 @@ window.addEventListener('keydown', (e) => {
         }
         
         if (targetKanaIndex !== -1) {
-            fallingKana.splice(targetKanaIndex, 1); // Remove the kana
+            fallingKana.splice(targetKanaIndex, 1);
             score += 10;
             destroyed = true;
         }
 
-        if (destroyed) {
-            // Potentially switch mode after successful clear
-            if (Math.random() < 0.2) { // 20% chance to switch mode
-                 gameMode = gameMode === 'hiragana' ? 'katakana' : 'hiragana';
-            }
-        }
-        typingBuffer = ""; // Clear buffer regardless
+        typingBuffer = "";
 
     } else if (e.key.length === 1 && e.key.match(/[a-z]/i)) {
         typingBuffer += e.key.toLowerCase();
     }
 });
 
-// --- Main Game Loop (replaces the `while running:` loop) ---
+// --- Game Flow Functions ---
+function startGame(selectedMode) {
+    gameMode = selectedMode;
+    resetGame();
+    
+    // Hide start screen and show canvas
+    startScreen.style.display = 'none';
+    canvas.style.display = 'block';
+
+    // Start the game loop
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animationFrameId = requestAnimationFrame(gameLoop);
+}
+
+function returnToMenu() {
+    // Stop the game loop
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+
+    // Show start screen and hide canvas
+    startScreen.style.display = 'block';
+    canvas.style.display = 'none';
+}
+
+// --- Main Game Loop ---
 function gameLoop(currentTime) {
     // --- Update Logic ---
     if (!gameOver) {
-        // Spawn new kana
         if (currentTime - lastSpawnTime > KANA_SPAWN_RATE) {
             fallingKana.push(new Kana());
             lastSpawnTime = currentTime;
         }
-
-        // Update and check for escapes
         for (let i = fallingKana.length - 1; i >= 0; i--) {
             fallingKana[i].update();
             if (fallingKana[i].y > HEIGHT + 50) {
@@ -157,24 +177,14 @@ function gameLoop(currentTime) {
                 fallingKana.splice(i, 1);
             }
         }
-        
-        // Check for game over condition
-        if (escapes >= MAX_ESCAPES) {
-            gameOver = true;
-        }
+        if (escapes >= MAX_ESCAPES) gameOver = true;
     }
     
-    // --- Drawing Logic (replaces all the SCREEN.blit calls) ---
-    // Clear canvas
+    // --- Drawing Logic ---
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
-    
-    // Draw background
     ctx.drawImage(backgroundImage, 0, 0, WIDTH, HEIGHT);
-    
-    // Draw falling kana
     fallingKana.forEach(kana => kana.draw());
     
-    // Draw player "ship" and typing buffer
     ctx.font = "56px NotoSansJP";
     ctx.fillStyle = colors.PLAYER_BLUE;
     ctx.textAlign = "center";
@@ -185,45 +195,34 @@ function gameLoop(currentTime) {
     ctx.textAlign = "left";
     ctx.fillText(typingBuffer, 12, HEIGHT - 12);
     
-    // Draw UI
     ctx.fillText(`Score: ${score}`, 12, 44);
-    ctx.fillText(`Mode: ${gameMode.toUpperCase()}`, 12, 76);
+    let modeText = gameMode.charAt(0).toUpperCase() + gameMode.slice(1); // Capitalize
+    ctx.fillText(`Mode: ${modeText}`, 12, 76);
+
     ctx.textAlign = "right";
     ctx.fillStyle = colors.PASTEL_PINK;
     ctx.fillText(`Escapes: ${escapes}/${MAX_ESCAPES}`, WIDTH - 12, 44);
     
-    // Draw Game Over screen
     if (gameOver) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
-        
         ctx.font = "84px NotoSansJP";
         ctx.fillStyle = colors.NEON_MAGENTA;
         ctx.textAlign = "center";
         ctx.fillText("GAME OVER", WIDTH / 2, HEIGHT / 2 - 80);
-        
         ctx.font = "26px NotoSansJP";
         ctx.fillStyle = colors.WHITE;
         ctx.fillText(`Final Score: ${score}`, WIDTH / 2, HEIGHT / 2);
-        
-        const missedText = `Missed: ${escapedKana.slice(-10).join(', ')}`; // Show last 10 missed
+        const missedText = `Missed: ${escapedKana.slice(-10).join(', ')}`;
         ctx.fillStyle = colors.PASTEL_PINK;
         ctx.fillText(missedText, WIDTH / 2, HEIGHT / 2 + 50);
-
         ctx.font = "26px NotoSansJP";
         ctx.fillStyle = colors.GRAY;
-        ctx.fillText("Press 'R' to Restart", WIDTH / 2, HEIGHT / 2 + 120);
+        ctx.fillText("Press Enter to Return to Menu", WIDTH / 2, HEIGHT / 2 + 120);
     }
     
-    // Request the next frame
-    requestAnimationFrame(gameLoop);
-}
-
-// --- Start the Game ---
-function startGame() {
-    console.log("Assets loaded, starting game.");
-    resetGame();
-    // The `requestAnimationFrame` function is the JS equivalent of a game loop.
-    // It tells the browser that you wish to perform an animation.
-    requestAnimationFrame(gameLoop);
+    // Keep the loop going
+    if (!gameOver) {
+       animationFrameId = requestAnimationFrame(gameLoop);
+    }
 }
