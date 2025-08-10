@@ -1,0 +1,29 @@
+/* style.css */
+
+/* Load the custom Japanese font */
+@font-face {
+    font-family: 'NotoSansJP';
+    src: url('NotoSansJP-Regular.ttf') format('truetype');
+}
+
+body {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin: 0;
+    font-family: sans-serif;
+    height: 100vh;
+}
+
+h1 {
+    color: #e0e0e0;
+    font-family: 'NotoSansJP', sans-serif; /* Use the custom font */
+}
+
+canvas {
+    border: 2px solid #0f3460;
+    background-color: #000;
+}
