@@ -1,22 +1,581 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kana Blaster</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kana Blaster (Web)</title>
+
+<!-- Use Google-hosted Noto Sans JP for glyph rendering. You can replace with a local TTF if preferred. -->
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+
+<style>
+  html,body { height:100%; margin:0; background:#0b0210; display:flex; align-items:center; justify-content:center; }
+  #gameCanvas { display:block; background:#000; image-rendering:optimizeQuality; }
+  /* Simple UI fallback for instructions if canvas unsupported */
+  .nosupport { color:white; font-family: sans-serif; text-align:center; }
+</style>
 </head>
 <body>
-    <h1>Kana Blaster</h1>
-    <div id="canvas-container">
-        <canvas id="gameCanvas" width="720" height="900">
-            Your browser does not support the HTML5 canvas tag.
-        </canvas>
-    </div>
-    <div id="controls">
-        <p><strong>How to Play:</strong> Type the romaji (English letters) for the falling kana to destroy them. Don't let them reach the bottom!</p>
-    </div>
+<canvas id="gameCanvas" width="720" height="900"></canvas>
+<script>
+/*
+Kana Blaster - browser port
+Place background.png in same folder or it will use a solid fill.
+Matches features from provided Pygame code.
+*/
 
-    <script src="kana_blaster.js"></script>
+(() => {
+  const W = 720, H = 900;
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  canvas.width = W;
+  canvas.height = H;
+
+  // Scale for high-DPI displays
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  if (DPR !== 1) {
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    ctx.scale(DPR, DPR);
+  }
+
+  // Constants (copied from Python)
+  const START_MAX_ON_SCREEN = 3;
+  const MAX_ON_SCREEN_CAP = 5;
+  const START_SPEED = 60.0;
+  const SPEED_CAP = 100.0;
+  const SCORE_PER = 10;
+  const MAX_ESCAPES = 3;
+  const DIFFICULTY_STEPS = [
+    { sc: 0,   m: START_MAX_ON_SCREEN, spd: START_SPEED, spawn: 1.5 },
+    { sc: 300, m: 3, spd: 80.0, spawn: 1.2 },
+    { sc: 700, m: 4, spd: 130.0, spawn: 0.9 },
+    { sc:1200, m: 5, spd: 170.0, spawn: 0.7 },
+    { sc:1800, m: 5, spd: SPEED_CAP, spawn: 0.55 }
+  ];
+
+  // Colors
+  const colors = {
+    DEEP_PURPLE: 'rgb(59,8,85)',
+    PURPLE_MAGENTA: 'rgb(133,36,103)',
+    PASTEL_PINK: 'rgb(253,128,131)',
+    NEON_MAGENTA: 'rgb(238,34,125)',
+    TEAL_BLUE: 'rgb(73,128,153)',
+    NEON_CYAN: 'rgb(48,192,183)',
+    WHITE: 'rgb(255,255,255)',
+    BLACK: 'rgb(0,0,0)',
+    LIGHT_CYAN: 'rgba(230,255,255,1)',
+    AQUA_GLOW: 'rgba(180,240,240,1)',
+    GRAY: 'rgb(200,200,200)'
+  };
+  const SYNTHWAVE_COLORS = [colors.PASTEL_PINK, colors.NEON_MAGENTA, colors.TEAL_BLUE, colors.NEON_CYAN];
+  const STAR_COLORS = SYNTHWAVE_COLORS.slice();
+
+  // Fonts (sizes chosen to match Pygame relative sizes)
+  const UI_FONT = '26px "Noto Sans JP", sans-serif';
+  const KANA_FONT = '64px "Noto Sans JP", sans-serif';
+  const BIG_FONT = '84px "Noto Sans JP", sans-serif';
+  const SHIP_FONT = '56px "Noto Sans JP", sans-serif';
+  const SMALL_UI_FONT = '20px "Noto Sans JP", sans-serif';
+
+  // Kana data (exact from your Python arrays)
+  const BASIC_KANA = [
+    ["a","あ","ア"],["i","い","イ"],["u","う","ウ"],["e","え","エ"],["o","お","オ"],
+    ["ka","か","カ"],["ki","き","キ"],["ku","く","ク"],["ke","け","ケ"],["ko","こ","コ"],
+    ["sa","さ","サ"],["shi","し","シ"],["su","す","ス"],["se","せ","セ"],["so","そ","ソ"],
+    ["ta","た","タ"],["chi","ち","チ"],["tsu","つ","ツ"],["te","て","テ"],["to","と","ト"],
+    ["na","な","ナ"],["ni","に","ニ"],["nu","ぬ","ヌ"],["ne","ね","ネ"],["no","の","ノ"],
+    ["ha","は","ハ"],["hi","ひ","ヒ"],["fu","ふ","フ"],["he","へ","ヘ"],["ho","ほ","ホ"],
+    ["ma","ま","マ"],["mi","み","ミ"],["mu","む","ム"],["me","め","メ"],["mo","も","モ"],
+    ["ya","や","ヤ"],["yu","ゆ","ユ"],["yo","よ","ヨ"],
+    ["ra","ら","ラ"],["ri","り","リ"],["ru","る","ル"],["re","れ","レ"],["ro","ろ","ロ"],
+    ["wa","わ","ワ"],["wo","を","ヲ"],["n","ん","ン"]
+  ];
+
+  const DAKUTEN_KANA = [
+    ["ga","が","ガ"],["gi","ぎ","ギ"],["gu","ぐ","グ"],["ge","げ","ゲ"],["go","ご","ゴ"],
+    ["za","ざ","ザ"],["ji","じ","ジ"],["zu","ず","ズ"],["ze","ぜ","ゼ"],["zo","ぞ","ゾ"],
+    ["da","だ","ダ"],["ji","ぢ","ヂ"],["zu","づ","ヅ"],["de","で","デ"],["do","ど","ド"],
+    ["ba","ば","バ"],["bi","び","ビ"],["bu","ぶ","ブ"],["be","べ","ベ"],["bo","ぼ","ボ"],
+    ["pa","ぱ","パ"],["pi","ぴ","ピ"],["pu","ぷ","プ"],["pe","ぺ","ペ"],["po","ぽ","ポ"]
+  ];
+
+  const COMBINATION_KANA = [
+    ["kya","きゃ","キャ"],["kyu","きゅ","キュ"],["kyo","きょ","キョ"],
+    ["sha","しゃ","シャ"],["shu","しゅ","シュ"],["sho","しょ","ショ"],
+    ["cha","ちゃ","チャ"],["chu","ちゅ","チュ"],["cho","ちょ","チョ"],
+    ["nya","にゃ","ニャ"],["nyu","にゅ","ニュ"],["nyo","にょ","ニョ"],
+    ["hya","ひゃ","ヒャ"],["hyu","ひゅ","ヒュ"],["hyo","ひょ","ヒョ"],
+    ["mya","みゃ","ミャ"],["myu","みゅ","ミュ"],["myo","みょ","ミョ"],
+    ["rya","りゃ","リャ"],["ryu","りゅ","リュ"],["ryo","りょ","リョ"],
+    ["gya","ぎゃ","ギャ"],["gyu","ぎゅ","ギュ"],["gyo","ぎょ","ギョ"],
+    ["ja","じゃ","ジャ"],["ju","じゅ","ジュ"],["jo","じょ","ジョ"],
+    ["bya","びゃ","ビャ"],["byu","びゅ","ビュ"],["byo","びょ","ビョ"],
+    ["pya","ぴゃ","パ"],["pyu","ぴゅ","ピュ"],["pyo","ぴょ","ピョ"]
+  ];
+
+  // Starfield
+  const NUM_STARS = 140;
+  const stars = [];
+  for (let i=0;i<NUM_STARS;i++){
+    stars.push({
+      x: Math.random()*W,
+      y: Math.random()*H,
+      spd: 30 + Math.random()*150,
+      sz: [1,2,2][Math.floor(Math.random()*3)],
+      color: STAR_COLORS[Math.floor(Math.random()*STAR_COLORS.length)]
+    });
+  }
+  function drawStarfield(dt){
+    for (let s of stars){
+      s.y += s.spd * dt;
+      if (s.y > H){
+        s.y = -2;
+        s.x = Math.random()*W;
+        s.spd = 30 + Math.random()*150;
+        s.color = STAR_COLORS[Math.floor(Math.random()*STAR_COLORS.length)];
+      }
+      if (s.sz === 1){
+        ctx.fillStyle = s.color;
+        ctx.fillRect(Math.floor(s.x), Math.floor(s.y), 2, 2);
+      } else {
+        // glow circle
+        ctx.beginPath();
+        ctx.fillStyle = s.color;
+        ctx.globalAlpha = 0.8;
+        ctx.arc(s.x, s.y, 3, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Load background image (optional)
+  const bgImage = new Image();
+  let bgLoaded = false;
+  bgImage.src = 'background.png';
+  bgImage.onload = () => { bgLoaded = true; };
+
+  // Entities
+  class KanaEnemy {
+    constructor(romaji, glyph, x, y, speed){
+      this.romaji = romaji;
+      this.glyph = glyph;
+      this.x = x;
+      this.y = y;
+      this.speed = speed;
+      this.hit = false;
+      this.color = SYNTHWAVE_COLORS[Math.floor(Math.random()*SYNTHWAVE_COLORS.length)];
+    }
+    update(dt){
+      this.y += this.speed * dt;
+    }
+    draw(){
+      ctx.font = KANA_FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = this.color;
+      ctx.fillText(this.glyph, this.x, this.y);
+    }
+  }
+
+  class Bullet {
+    constructor(x,y,target){
+      this.x = x; this.y = y;
+      this.speed = 680;
+      this.target = target;
+      this.active = true;
+    }
+    update(dt, explosions){
+      this.y -= this.speed * dt;
+      if (this.target && !this.target.hit && this.y <= this.target.y){
+        this.active = false;
+        this.target.hit = true;
+        explosions.push(new Explosion(this.target.x, this.target.y, this.target.color));
+      }
+      if (this.y < -20) this.active = false;
+    }
+    draw(){
+      // shaft
+      ctx.fillStyle = colors.LIGHT_CYAN;
+      ctx.fillRect(this.x-2, this.y-7, 4, 14);
+      // glow
+      ctx.beginPath();
+      ctx.fillStyle = colors.AQUA_GLOW;
+      ctx.globalAlpha = 0.9;
+      ctx.arc(this.x, this.y-3, 5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  class Explosion {
+    constructor(x,y,color){
+      this.x = x; this.y = y; this.color = color;
+      this.timer = 0.28;
+      this.max_r = 36;
+    }
+    update(dt){ this.timer -= dt; }
+    draw(){
+      const t = Math.max(0, this.timer);
+      const ratio = 1 - (t / 0.28);
+      const r_big = Math.floor(this.max_r * (0.8 + ratio*0.6));
+      const a = Math.floor(200 * (1 - ratio));
+      if (a > 0){
+        ctx.beginPath();
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = a/255;
+        ctx.arc(this.x, this.y, r_big, 0, Math.PI*2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      const flash_r = Math.floor(8 + 18*ratio);
+      ctx.beginPath();
+      ctx.fillStyle = colors.WHITE;
+      ctx.arc(this.x, this.y, flash_r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    get done(){ return this.timer <= 0; }
+  }
+
+  // Difficulty helper
+  function getDifficulty(score){
+    let cur_max = START_MAX_ON_SCREEN, cur_speed = START_SPEED, cur_spawn = 1.5;
+    for (let step of DIFFICULTY_STEPS){
+      if (score >= step.sc){
+        cur_max = step.m; cur_speed = step.spd; cur_spawn = step.spawn;
+      }
+    }
+    return [ Math.min(cur_max, MAX_ON_SCREEN_CAP), Math.min(cur_speed, SPEED_CAP), cur_spawn ];
+  }
+
+  // Menu state
+  function mainMenuLoop(onDone){
+    // menu variables
+    let mode = null;
+    let kana_categories = { Basic: true, "Ha/Dakuten": false, Combinations: false };
+    const game_modes = ["Hiragana", "Katakana", "Both"];
+    let game_mode_index = 0;
+    let lastTick = performance.now();
+
+    // Input handling (mouse)
+    function onMouseDown(e){
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left);
+      const my = (e.clientY - rect.top);
+      // toggle categories
+      const cx = W/2 - 120;
+      for (let i=0;i<Object.keys(kana_categories).length;i++){
+        const y = 330 + i*50;
+        if (mx >= cx && mx <= cx+240 && my >= y && my <= y+40){
+          const key = Object.keys(kana_categories)[i];
+          kana_categories[key] = !kana_categories[key];
+        }
+      }
+      // mode btn
+      const modeRect = { x: W/2 - 150, y:250, w:300, h:50 };
+      if (mx >= modeRect.x && mx <= modeRect.x+modeRect.w && my >= modeRect.y && my <= modeRect.y+modeRect.h){
+        game_mode_index = (game_mode_index+1) % game_modes.length;
+      }
+      // play btn
+      const playRect = { x: W/2 - 60, y:500, w:120, h:50 };
+      if (mx >= playRect.x && mx <= playRect.x+playRect.w && my >= playRect.y && my <= playRect.y+playRect.h){
+        if (Object.values(kana_categories).some(v=>v)) {
+          cleanup();
+          onDone([game_mode_index, kana_categories]);
+        }
+      }
+    }
+
+    function onKeyDown(e){
+      if (e.key === 'q' || e.key === 'Q') {
+        // In web, quit returns to menu - here just reload page
+        window.location.reload();
+      }
+    }
+
+    canvas.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown);
+
+    function cleanup(){
+      canvas.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown);
+    }
+
+    function draw(){
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - lastTick)/1000);
+      lastTick = now;
+
+      // background
+      if (bgLoaded) ctx.drawImage(bgImage, 0,0,W,H);
+      else { ctx.fillStyle = colors.DEEP_PURPLE; ctx.fillRect(0,0,W,H); }
+      drawStarfield(dt);
+
+      // Title
+      ctx.font = BIG_FONT; ctx.textAlign = 'center';
+      ctx.fillStyle = colors.PASTEL_PINK;
+      ctx.fillText('Kana Blaster', W/2, 84);
+
+      // Mode button
+      const modeText = game_modes[game_mode_index];
+      const modeColor = modeText === 'Hiragana' ? colors.NEON_CYAN : (modeText === 'Katakana' ? colors.NEON_MAGENTA : colors.WHITE);
+      ctx.fillStyle = colors.PURPLE_MAGENTA;
+      roundRect(ctx, W/2 -150,250,300,50,15, true, false);
+      ctx.strokeStyle = colors.WHITE; ctx.lineWidth = 2;
+      roundRect(ctx, W/2 -150,250,300,50,15,false,true);
+
+      ctx.font = SMALL_UI_FONT;
+      ctx.fillStyle = modeColor;
+      ctx.fillText(`Mode: ${modeText}`, W/2, 260 + 12 + 4);
+
+      // Category boxes
+      let i=0;
+      ctx.font = SMALL_UI_FONT;
+      for (let cat of Object.keys(kana_categories)){
+        const x = W/2 - 120, y = 330 + i*50;
+        ctx.fillStyle = colors.PURPLE_MAGENTA;
+        roundRect(ctx, x, y, 240, 40, 15, true, false);
+        ctx.strokeStyle = colors.WHITE; ctx.lineWidth = 2;
+        roundRect(ctx, x, y, 240, 40, 15,false,true);
+        ctx.fillStyle = colors.WHITE;
+        ctx.textAlign = 'left';
+        ctx.fillText(cat, x+40, y + 26);
+        if (kana_categories[cat]){
+          ctx.strokeStyle = colors.NEON_CYAN; ctx.lineWidth = 3;
+          // draw check mark with lines
+          ctx.beginPath();
+          ctx.moveTo(x+10, y+20);
+          ctx.lineTo(x+20, y+30);
+          ctx.lineTo(x+30, y+10);
+          ctx.stroke();
+        }
+        i++;
+      }
+
+      // PLAY button
+      ctx.fillStyle = colors.NEON_CYAN;
+      roundRect(ctx, W/2 -60, 500, 120, 50, 15, true, false);
+      ctx.font = SMALL_UI_FONT; ctx.fillStyle = colors.BLACK;
+      ctx.fillText('PLAY', W/2, 510 + 12);
+
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  }
+
+  // Utility: rounded rect
+  function roundRect(ctx,x,y,w,h,r, fill=true, stroke=false){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    if (fill){ ctx.fillStyle = ctx.fillStyle || colors.PURPLE_MAGENTA; ctx.fill(); }
+    if (stroke){ ctx.stroke(); }
+  }
+
+  // Main game loop builder
+  function gameLoop(modeInfo, onEnd){
+    const [game_mode_index, kana_categories] = modeInfo;
+
+    // Build selected kana
+    let selected_kana = [];
+    if (kana_categories.Basic) selected_kana = selected_kana.concat(BASIC_KANA);
+    if (kana_categories["Ha/Dakuten"]) selected_kana = selected_kana.concat(DAKUTEN_KANA);
+    if (kana_categories.Combinations) selected_kana = selected_kana.concat(COMBINATION_KANA);
+
+    const ROMAJI_TO_HIRAGANA = {};
+    const ROMAJI_TO_KATAKANA = {};
+    for (let [r,h,k] of selected_kana){ ROMAJI_TO_HIRAGANA[r]=h; ROMAJI_TO_KATAKANA[r]=k; }
+    const ALL_ROMAJI = Object.keys(ROMAJI_TO_HIRAGANA);
+
+    // game state
+    let score = 0;
+    let escapes = 0;
+    let escaped_kana = [];
+    let enemies = [], bullets = [], explosions = [];
+    let input_buffer = '';
+    let spawn_timer = 0;
+    let ship_x = Math.floor(W/2);
+    let game_over = false;
+    let escape_text = '';
+    let escape_timer = 0;
+    let lastTime = performance.now();
+
+    // Input handlers
+    function onKeyDown(e){
+      if (!game_over){
+        if (e.key === 'Backspace'){ input_buffer = input_buffer.slice(0,-1); return; }
+        if (e.key.length === 1){
+          const ch = e.key.toLowerCase();
+          if (ch >= 'a' && ch <= 'z'){
+            input_buffer += ch;
+            for (let en of enemies){
+              if (en.romaji === input_buffer && !en.hit){
+                ship_x = en.x;
+                bullets.push(new Bullet(ship_x, H - 80, en));
+                input_buffer = '';
+                score += SCORE_PER;
+                break;
+              }
+            }
+            // if no romaji starts with buffer, clear it
+            if (input_buffer && !ALL_ROMAJI.some(r => r.startsWith(input_buffer))){
+              input_buffer = '';
+            }
+          }
+        }
+      } else {
+        if (e.key === 'r' || e.key === 'R'){ cleanup(); onEnd(true); }
+        if (e.key === 'q' || e.key === 'Q'){ cleanup(); onEnd(false); }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+
+    function cleanup(){
+      window.removeEventListener('keydown', onKeyDown);
+    }
+
+    // Main frame
+    function frame(){
+      const now = performance.now();
+      let dt = Math.min(0.05, (now - lastTime)/1000);
+      lastTime = now;
+
+      // draw background
+      if (bgLoaded) ctx.drawImage(bgImage, 0,0,W,H);
+      else { ctx.fillStyle = colors.DEEP_PURPLE; ctx.fillRect(0,0,W,H); }
+
+      drawStarfield(dt);
+
+      if (!game_over){
+        // difficulty and spawn
+        const [max_on_screen, speed_val, spawn_interval] = getDifficulty(score);
+        spawn_timer += dt;
+        const active_enemies = enemies.filter(e=>!e.hit);
+        if (spawn_timer >= spawn_interval && active_enemies.length < max_on_screen){
+          spawn_timer = 0;
+          if (ALL_ROMAJI.length > 0){
+            const romaji = ALL_ROMAJI[Math.floor(Math.random()*ALL_ROMAJI.length)];
+            let glyph;
+            if (game_mode_index === 0) glyph = ROMAJI_TO_HIRAGANA[romaji];
+            else if (game_mode_index === 1) glyph = ROMAJI_TO_KATAKANA[romaji];
+            else glyph = Math.random()<0.5 ? ROMAJI_TO_HIRAGANA[romaji] : ROMAJI_TO_KATAKANA[romaji];
+
+            enemies.push(new KanaEnemy(romaji, glyph, 60 + Math.random()*(W-120), -80 - Math.random()*120, speed_val));
+          }
+        }
+
+        // update entities
+        enemies.forEach(e => e.update(dt));
+        bullets.forEach(b => b.update(dt, explosions));
+        explosions.forEach(ex => ex.update(dt));
+
+        // remove off-screen unhit enemies => escapes
+        const remaining = [];
+        for (let e of enemies){
+          if (e.y >= H - 80 && !e.hit){
+            escapes++;
+            escaped_kana.push(e.romaji.toUpperCase());
+            escape_text = e.romaji.toUpperCase() + ' ESCAPED!';
+            escape_timer = 1.0;
+          } else {
+            if (!e.hit) remaining.push(e);
+          }
+        }
+        enemies = remaining;
+
+        bullets = bullets.filter(b => b.active);
+        explosions = explosions.filter(ex => !ex.done);
+
+        if (escapes >= MAX_ESCAPES) game_over = true;
+      }
+
+      // draw entities
+      enemies.forEach(e => e.draw());
+      bullets.forEach(b => b.draw());
+      explosions.forEach(ex => ex.draw());
+
+      // ship
+      ctx.font = SHIP_FONT;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = colors.NEON_CYAN;
+      ctx.fillText('人', ship_x, H - 86);
+
+      // HUD
+      ctx.font = UI_FONT;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colors.WHITE;
+      ctx.fillText('Score: ' + score, 12, 12 + 20);
+      ctx.fillStyle = colors.NEON_CYAN;
+      ctx.fillText('Input: ' + input_buffer, 12, 44 + 16);
+      ctx.font = UI_FONT;
+      ctx.fillStyle = colors.PASTEL_PINK;
+      const escTxt = `Escapes: ${escapes}/${MAX_ESCAPES}`;
+      const metrics = ctx.measureText(escTxt);
+      ctx.fillText(escTxt, W - metrics.width - 12, 12 + 20);
+
+      // escape flash
+      if (escape_timer > 0){
+        escape_timer -= dt;
+        ctx.font = BIG_FONT;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = colors.PASTEL_PINK;
+        ctx.fillText(escape_text, W/2, H/2);
+        // shadow
+        ctx.fillStyle = colors.DEEP_PURPLE;
+        // overlay not exactly shadowed below because we drew pink first; skip complex shadow for performance
+      }
+
+      // game over overlay
+      if (game_over){
+        ctx.fillStyle = 'rgba(0,0,0,0.78)';
+        ctx.fillRect(0,0,W,H);
+        ctx.font = BIG_FONT;
+        ctx.fillStyle = colors.NEON_MAGENTA;
+        ctx.textAlign = 'center';
+        ctx.fillText('GAME OVER', W/2, H/2 - 80);
+        ctx.font = UI_FONT;
+        ctx.fillStyle = colors.WHITE;
+        ctx.fillText('Final Score: ' + score, W/2 - 60, H/2 + 20);
+        ctx.fillStyle = colors.PASTEL_PINK;
+        const escaped_str = escaped_kana.join(', ');
+        ctx.fillText('Missed: ' + escaped_str, W/2 - 60, H/2 + 54);
+        ctx.fillStyle = colors.GRAY;
+        ctx.fillText('R = Restart    Q = Quit', W/2 - 60, H/2 + 88);
+      }
+
+      if (!game_over) requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+    // To support restarting: onEnd is called in key handlers clean up earlier.
+  }
+
+  // Top-level flow: Show main menu then start game loop. mainMenuLoop will call back with mode info.
+  function start(){
+    mainMenuLoop((modeInfo) => {
+      // after selecting mode, start game loop. Provide onEnd callback to handle restart/quit.
+      const onEnd = (restart) => {
+        if (restart) start(); else {
+          // "Quit" returns to menu. We'll go back to start to show menu again.
+          start();
+        }
+      };
+      gameLoop(modeInfo, onEnd);
+    });
+  }
+
+  // Kick off
+  start();
+
+})();
+</script>
 </body>
 </html>
